@@ -80,3 +80,117 @@ for i,gps_point in enumerate(atob[:-1]):
 	heading = get_angle_between_points(gps_point, atob[i+1])
 	download_streetview_image(gps_point, filename="stcats_snap_" + str(i), heading=90-heading)
 
+
+# 
+# Find alignment between two images in a path, and smooth between them:
+# 
+
+# Second image is a subset of the first.
+# So, we resize the second image to be smaller, and we cut out the presumed center of the first image.
+# (If we try to match im0 and im1 direactly, features like the road and sky will dominate and it will just say to overlay them as-is, generally.)
+# These will be the same size, and we find the best alignment between them.
+# In the future, this should be based on some knowledge of the true distance between the GPS points, and knowledge of the shared heading.
+
+def pick_out_center(mat):
+    x,y = mat.shape
+    x4 = int(np.round(x/4.0))
+    y4 = int(np.round(y/4.0))
+    return mat[x4:3*x4,y4:3*y4]
+
+def estimate_scale_and_shift(im0, im1):
+    # Retrieve the middle half of im0:
+    ar0 = pick_out_center(np.mean(np.array(im0),axis=2))
+    # Shrinkg im1 to half its size:
+    ar1 = np.mean(np.array(im1.resize(np.array(im1.size)/2)),axis=2)
+    # Set strong expectation that angle will not change:
+    # (Scale and horizontal and vertical transformations are what we will estimate.)
+    result = ird.similarity(ar0, ar1, numiter=3, constraints={"angle":[0, .5]})
+    # ,"tx":[0, 1], "ty":[0, 1]})
+    scale = result["scale"]
+    tvec = np.round(result["tvec"])
+    # We originally scaled it by 1/2; we need to multiply this by scale.
+    scale1to0 = scale/2.0
+    # We also need to offset by 1/4 of the height and width of the original, plus tvec.
+    shift1to0 = np.round(np.array(np.array(im0).shape[:2])/4.0) - tvec
+    return scale1to0, shift1to0
+
+# To generate an animated transition between im0 and im1, we want to generate intermediate frames according to the following diagram:
+#    _______________
+#   |\     im0     /| 
+#   | \_ _ _ _ _ _/ |
+#   |  |\  FRAME /| |
+#   |    \______/   |
+#   |  | |  im1 | | |
+#   |    |______|   |
+#   |  |/       \ | |
+#   |  /_ _ _ _ _\  |
+#   | /           \ |
+#   |/_____________\|
+# 
+# im1 is the full-resolution im1, WxH for our test case.
+# im0 has been blown up to fit: (WxH)/scale1to0
+# We want to select the dotted box FRAME, of intermediate dimensions,
+# and also with im1 alpha-overlaid on im0.
+
+# im1 is a subset of im0
+# So, we shrink im1 and search for the best alignment between it and im0.
+# (In he future, the correct scale could be chosen directly from the known exact distance between GPS points.)
+
+# Overlay im1 and a blown-up im0, using estimate scale and shift parameters:
+def add_shrunk_image_inside(im0, im1, scale1to0, shift1to0, alpha=1):
+    big_w, big_h = (np.array(im1.size)/scale1to0).astype(int)
+    im_canvas = im0.resize((big_w, big_h))
+    im_composite = im_canvas.copy()
+    y_off, x_off = (shift1to0/scale1to0).astype(int)
+    im_composite.paste(im1, [x_off, y_off])
+    im_alpha = Image.blend(im_canvas, im_composite, alpha=alpha)
+    return im_alpha
+
+# Crop output frame from canvas:
+def intermediate_zoom(im_canvas, im1, shift1to0, scale1to0, zoom=0.8):
+    # Zoom goes from 0 (no zoom) to 1 (zoom in on im1 entirely)
+    big_w, big_h = im_canvas.size
+    small_w, small_h = im1.size
+    y_off, x_off = shift1to0/scale1to0
+    w = small_w + (big_w-small_w)*(1-zoom)
+    h = small_h + (big_h-small_h)*(1-zoom)
+    y = y_off*zoom
+    x = x_off*zoom
+    w,h,y,x = np.array((w,h,y,x)).astype(int)
+    # Returns a copy of a rectangular region from the current image. The box is a 4-tuple defining the left, upper, right, and lower pixel coordinate.
+    im_crop = im_canvas.crop([x,y,x+w,y+h])
+    im_crop = im_crop.resize((small_w, small_h))
+    return im_crop
+
+# Example 4: Zoom-transition between two frames
+im0path = photo_folder + "carlton_60.jpg"
+im1path = photo_folder + "carlton_61.jpg"
+im0 = Image.open(im0path)
+im1 = Image.open(im1path)
+scale1to0, shift1to0 = estimate_scale_and_shift(im0, im1)
+for i in range(11):
+    im_alpha_canvas = add_shrunk_image_inside(im0, im1, scale1to0, shift1to0, alpha=0.1*i)
+    im_crop = intermediate_zoom(im_alpha_canvas, im1, shift1to0, scale1to0, zoom=0.1*i)
+    im_crop.save(photo_folder + "zoom_"+str(i)+".jpg")
+
+# Example 5: Zoom between 10 frames
+master_number = 0
+for pic_number in range(50):
+    print pic_number
+    im0path = photo_folder + "carlton_" + str(pic_number+0) + ".jpg"
+    im1path = photo_folder + "carlton_" + str(pic_number+1) + ".jpg"
+    im0 = Image.open(im0path)
+    im1 = Image.open(im1path)
+    # scale1to0, shift1to0 = estimate_scale_and_shift(im0, im1)
+    for i in range(4):
+        im_alpha_canvas = add_shrunk_image_inside(im0, im1, scale1to0, shift1to0, alpha=0.25*i)
+        im_crop = intermediate_zoom(im_alpha_canvas, im1, shift1to0, scale1to0, zoom=0.25*i)
+        im_crop.save(photo_folder + "zoom_"+str(master_number).zfill(3)+".jpg")
+        master_number+=1
+
+# Add the last photo
+im_alpha_canvas = add_shrunk_image_inside(im0, im1, scale1to0, shift1to0, alpha=1)
+im_crop = intermediate_zoom(im_alpha_canvas, im1, shift1to0, scale1to0, zoom=1)
+im_crop.save(photo_folder + "zoom_"+str(master_number).zfill(3)+".jpg")
+# Convert the output to a movie:
+subprocess.call(["ffmpeg", "-r", "20", "-f", "image2", "-s", "600x300", "-i", "photos/zoom_%03d.jpg", "-vcodec", "libx264", "-crf", "25", "-pix_fmt", "yuv420p", "test.mp4"])
