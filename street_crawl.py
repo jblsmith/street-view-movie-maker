@@ -65,6 +65,22 @@ def get_angle_between_points(a,b):
 	angle_from_north = 90 - theta
 	return angle_from_north
 
+def crude_estimate_bearing(a_latlon,b_latlon):
+    import geopy
+    import geopy.distance
+    start = geopy.Point(a_latlon[1],a_latlon[0])
+    goal = geopy.Point(b_latlon[1],b_latlon[0])
+    d = geopy.distance.VincentyDistance(kilometers = 1)
+    dest_opts = []
+    for bearing in range(360):
+        dist = geopy.distance.great_circle(goal, d.destination(point=start, bearing=bearing)).miles
+        dest_opts.append(dist)
+    bearing_ccw_from_east = np.argmin(dest_opts)
+    bearing_ccw_from_north = bearing_ccw_from_east - 90
+    bearing_cw_from_north = np.mod(-bearing_ccw_from_north,360)
+    return bearing_cw_from_north
+
+
 from math import radians, cos, sin, asin, sqrt
 def haversine(a_gps, b_gps):
     """
@@ -107,20 +123,21 @@ for i,gps_point in enumerate(atob[:-1]):
 	download_streetview_image(gps_point, filename="stcats_snap_" + str(i), heading=90-heading)
 
 
+import time
 p_home = (36.070847,140.115591)
 p_ushiku = (35.982697,140.220276)
 # Getting directions to obtain a route
-origin=41.43206,-81.38992
-destination=41.43206,-81.38992
 import polyline
 gd = googlemaps.Client(key=API_KEY_DIRECTIONS)
 directions_result = gd.directions(origin=p_home,destination=p_ushiku,mode="walking")
 path_points = polyline.decode(directions_result[0]['overview_polyline']['points'])
 look_points = [interpolate_points(pt[0],pt[1],hop_size=10) for pt in zip(path_points[:-1],path_points[1:])]
 look_points = [item for sequence in look_points for item in sequence]
-for i,gps_point in enumerate(look_points[:400]):
-    heading = get_angle_between_points(gps_point, look_points[i+1])
-    download_streetview_image(gps_point, filename="road_to_ushiku_" + str(i), heading=90-heading)
+for i,gps_point in enumerate(look_points):
+    heading = crude_estimate_bearing(gps_point, look_points[i+3])
+    download_streetview_image(gps_point, filename="road_to_ushiku_" + str(i), heading=heading)
+    if np.mod(i,50)==0:
+        time.sleep(5)
 
 
 # 
