@@ -20,11 +20,11 @@ photo_folder = myloc + "photos/"
 # https://andrewpwheeler.wordpress.com/2015/12/28/using-python-to-grab-google-street-view-imagery/
 # Usage example:
 # >>> download_streetview_image((46.414382,10.012988))
-def download_streetview_image(lat_lon, filename="image", savepath=photo_folder, size="600x300", heading=151.78, pitch=-0.76, fi=".jpg", address=None):
+def download_streetview_image(lat_lon, filename="image", savepath=photo_folder, size="600x300", heading=151.78, pitch=-0.76, fi=".jpg", address=None, fov=90):
 	base = "https://maps.googleapis.com/maps/api/streetview"
 	if address is None:
 		address = str(lat_lon[0]) + "," + str(lat_lon[1])
-	url = base + "?size=" + size + "&location=" + address + "&heading=" + str(heading) + "&pitch=" + str(pitch) + "&key=" + API_KEY_STREETVIEW
+	url = base + "?size=" + size + "&location=" + address + "&heading=" + str(heading) + "&pitch=" + str(pitch) + "&fov=" + str(fov) + "&key=" + API_KEY_STREETVIEW
 	print url
 	urllib.urlretrieve(url, savepath+filename+fi)
 
@@ -68,9 +68,9 @@ gr = googlemaps.Client(key=API_KEY_ROADS)
 a_gps = (45.499931, -73.573001)
 b_gps = (45.502009, -73.570964)
 atob = interpolate_points(a_gps,b_gps,101)
-for i,gps_point in enumerate(atob[:-2]):
-	heading = get_angle_between_points(gps_point, atob[i+1])
-	download_streetview_image(gps_point, filename="stcats_" + str(i), heading=90-heading)
+for i,gps_point in enumerate(atob[:20]):
+    heading = get_angle_between_points(gps_point, atob[i+1])
+    download_streetview_image(gps_point, filename="stcats_" + str(i), heading=90-heading)
 
 # Example 3: In Example 2, lots of those images are the same. Maybe interpolate with snap to roads is the better option?
 # Nope, this only gets me about 12 unique points for this 3-block route, whereas the manual interpolation gets me about 30.
@@ -194,3 +194,110 @@ im_crop = intermediate_zoom(im_alpha_canvas, im1, shift1to0, scale1to0, zoom=1)
 im_crop.save(photo_folder + "zoom_"+str(master_number).zfill(3)+".jpg")
 # Convert the output to a movie:
 subprocess.call(["ffmpeg", "-r", "20", "-f", "image2", "-s", "600x300", "-i", "photos/zoom_%03d.jpg", "-vcodec", "libx264", "-crf", "25", "-pix_fmt", "yuv420p", "test.mp4"])
+
+# Example 6: Long, realistic example.
+gr = googlemaps.Client(key=API_KEY_ROADS)
+a_gps = (34.090818, -118.361490)
+b_gps = (34.090923, -118.286259)
+atob = interpolate_points(a_gps,b_gps,1000)
+for i,gps_point in enumerate(atob[:-2]):
+    heading = get_angle_between_points(gps_point, atob[i+1])
+    download_streetview_image(gps_point, filename="santa_monica_"+str(i), savepath=myloc + "la/",heading=90-heading)
+
+# Clean up list of points with calls to snap_to_roads to get rid of identical spots.
+uniq_images = np.ones(len(atob))
+for i in range(len(atob)-3):
+    tmp1 = Image.open(myloc+"la/santa_monica_"+str(i)+".jpg")
+    tmp2 = Image.open(myloc+"la/santa_monica_"+str(i+1)+".jpg")
+    if tmp1==tmp2:
+        uniq_images[i+1] = 0
+
+# Load all images and create a profile 
+tmp_image = Image.open(myloc+"la/santa_monica_"+str(0)+".jpg")
+im_list = []
+for i in range(997):
+    if uniq_images[i]:
+        im_list.append(Image.open(myloc+"la/santa_monica_"+str(i)+".jpg"))
+
+ars = []
+for im in im_list:
+    ars.append(np.mean(np.array(im),axis=2))
+
+# This takes a while
+ar_stack = np.stack(ars,axis=2)
+# Faster from here:
+local_sim = np.zeros(len(ar_stack))
+# Number of neighbours to the left and right:
+n = 4
+for i in range(len(ar_stack)):
+    ind_range = np.arange(-n,n+1) + i
+    ind_range[ind_range<0] += n*2+1
+    ind_range[ind_range>=len(ar_stack)] -= n*2+1
+    tmp_stack = np.stack([ar_stack[k] for k in ind_range if k != i],axis=2)
+    tmp_template = np.median(tmp_stack,axis=2)
+    tmp_template -= np.mean(tmp_template)
+    correlation = tmp_template * (ar_stack[i]-np.mean(ar_stack[i]))
+    local_sim[i] = np.sum(correlation>0)
+
+    print ind_range, i
+    ind_range += 
+template = np.mean(ar_stack,axis=2)
+template -= np.mean(template)
+cors = [template * (np.mean(im,axis=2)-np.mean(im)) for im in im_list]
+corvals = [np.sum(ar>0) for ar in cors]
+
+
+keep_points = np.zeros(len(atob))
+atob_wdata = gr.snap_to_roads([atob], interpolate=True)
+
+for i in range(len(keep_points)-1):
+a_gps = atob[i]
+b_gps = atob[i+1]
+print "Making snap_to_roads call #" + str(i) + "..."
+atob_wdata = gr.snap_to_roads([a_gps, b_gps], interpolate=True)
+    if atob_wdata[1]["placeId"] != atob_wdata[0]["placeId"]:
+        kkep_points[i] = 1
+
+atob = [(g["location"]["latitude"], g["location"]["longitude"]) for g in atob_wdata]
+
+# Lots of these pictures will be doubles, so watch out for them!
+for i in range(len(atob)):
+    
+
+master_number = 0
+for pic_number in range(50):
+    print pic_number
+    im0path = myloc + "la/santa_monica_" + str(pic_number+0) + ".jpg"
+    im1path = photo_folder + "carlton_" + str(pic_number+1) + ".jpg"
+    im0 = Image.open(im0path)
+    im1 = Image.open(im1path)
+    # scale1to0, shift1to0 = estimate_scale_and_shift(im0, im1)
+    for i in range(4):
+        im_alpha_canvas = add_shrunk_image_inside(im0, im1, scale1to0, shift1to0, alpha=0.25*i)
+        im_crop = intermediate_zoom(im_alpha_canvas, im1, shift1to0, scale1to0, zoom=0.25*i)
+        im_crop.save(photo_folder + "zoom_"+str(master_number).zfill(3)+".jpg")
+        master_number+=1
+
+
+
+
+
+ffmpeg -r 20 -f image2 -s 600x300 -i zoom_%03d.jpg -vcodec libx264 -crf 25  -pix_fmt yuv420p test.mp4
+
+
+ffmpeg -r 20 -f image2 -s 600x300 -i santa_monica_%1d.jpg -vcodec libx264 -crf 25  -pix_fmt yuv420p sm_video.mp4
+
+
+
+
+
+
+# Let's try correlation instead. Slower, but probably better.
+from scipy import signal
+c2 = signal.correlate2d(ar0, ar1)
+np.unravel_index(np.argmax(c2),c2.shape)
+
+dp = np.dot(ar0.transpose(),ar1)
+bo0 = np.argmax(np.sum(dp,axis=0))
+bo1 = np.argmax(np.sum(dp,axis=1))
+result = ird.similarity(np.mean(im0,axis=2), np.mean(im2,axis=2), numiter=3)
