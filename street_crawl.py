@@ -27,12 +27,20 @@ def download_streetview_image(lat_lon, filename="image", savepath=photo_folder, 
 	url = base + "?size=" + size + "&location=" + address + "&heading=" + str(heading) + "&pitch=" + str(pitch) + "&fov=" + str(fov) + "&key=" + API_KEY_STREETVIEW
 	print url
 	urllib.urlretrieve(url, savepath+filename+fi)
+    
 
 # Given two GPS points (lat/lon), interpolate a sequence of GPS points in a straight line
-def interpolate_points(a_gps,b_gps,n_points=11):
-	x = np.linspace(a_gps[0],b_gps[0],n_points)
-	y = np.linspace(a_gps[1],b_gps[1],n_points)
-	return zip(x,y)
+def interpolate_points(a_gps,b_gps,n_points=10,hop_size=None):
+    if hop_size is not None:
+        distance = haversine(a_gps, b_gps)
+        n_points = np.ceil(distance*1.0/hop_size)
+    x = np.linspace(a_gps[0],b_gps[0],n_points)
+    y = np.linspace(a_gps[1],b_gps[1],n_points)
+    return zip(x,y)
+    # else:
+    #     print "You forgot to provide a hop parameter! Choose between:"
+    #     print "  n_points = number of points to interpolate;"
+    #     print "  hop_size = maximum distance between points in meters."
 
 # Given two GPS points, find the heading (as an angle from true north) that looks from point A to point B
 def get_angle_between_points(a,b):
@@ -57,6 +65,24 @@ def get_angle_between_points(a,b):
 	angle_from_north = 90 - theta
 	return angle_from_north
 
+from math import radians, cos, sin, asin, sqrt
+def haversine(a_gps, b_gps):
+    """
+    Calculate the great circle distance between two points 
+    on the earth (specified in decimal degrees)
+    """
+    lat1, lon1 = a_gps
+    lat2, lon2 = b_gps
+    # convert decimal degrees to radians 
+    lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
+    # haversine formula 
+    dlon = lon2 - lon1 
+    dlat = lat2 - lat1 
+    a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+    c = 2 * asin(sqrt(a)) 
+    km = 6367 * c
+    m = 6367000.0 * c
+    return m
 
 # Example 1: Look around in a circle!
 hachiko = (35.6595104,139.7010075)
@@ -79,6 +105,22 @@ atob = [(g["location"]["latitude"], g["location"]["longitude"]) for g in atob_wd
 for i,gps_point in enumerate(atob[:-1]):
 	heading = get_angle_between_points(gps_point, atob[i+1])
 	download_streetview_image(gps_point, filename="stcats_snap_" + str(i), heading=90-heading)
+
+
+p_home = (36.070847,140.115591)
+p_ushiku = (35.982697,140.220276)
+# Getting directions to obtain a route
+origin=41.43206,-81.38992
+destination=41.43206,-81.38992
+import polyline
+gd = googlemaps.Client(key=API_KEY_DIRECTIONS)
+directions_result = gd.directions(origin=p_home,destination=p_ushiku,mode="walking")
+path_points = polyline.decode(directions_result[0]['overview_polyline']['points'])
+look_points = [interpolate_points(pt[0],pt[1],hop_size=10) for pt in zip(path_points[:-1],path_points[1:])]
+look_points = [item for sequence in look_points for item in sequence]
+for i,gps_point in enumerate(look_points[:400]):
+    heading = get_angle_between_points(gps_point, look_points[i+1])
+    download_streetview_image(gps_point, filename="road_to_ushiku_" + str(i), heading=90-heading)
 
 
 # 
