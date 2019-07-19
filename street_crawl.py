@@ -1,7 +1,6 @@
+# Some useful Google API documentation:
 # https://developers.google.com/maps/documentation/directions/
 # https://developers.google.com/maps/documentation/roads/snap
-
-
 
 from API_KEYS import *
 import googlemaps
@@ -12,7 +11,8 @@ import imreg_dft as ird
 import scipy as sp
 import matplotlib.pyplot as plt
 from PIL import Image
-plt.ion()
+import json
+# plt.ion()
 myloc = "/Users/jordan/Documents/repositories/street-view-animation/"
 photo_folder = myloc + "photos/"
 
@@ -20,13 +20,44 @@ photo_folder = myloc + "photos/"
 # https://andrewpwheeler.wordpress.com/2015/12/28/using-python-to-grab-google-street-view-imagery/
 # Usage example:
 # >>> download_streetview_image((46.414382,10.012988))
-def download_streetview_image(lat_lon, filename="image", savepath=photo_folder, size="600x300", heading=151.78, pitch=-0.76, fi=".jpg", address=None, fov=90):
-	base = "https://maps.googleapis.com/maps/api/streetview"
-	if address is None:
-		address = str(lat_lon[0]) + "," + str(lat_lon[1])
-	url = base + "?size=" + size + "&location=" + address + "&heading=" + str(heading) + "&pitch=" + str(pitch) + "&fov=" + str(fov) + "&key=" + API_KEY_STREETVIEW
-	print url
-	urllib.urlretrieve(url, savepath+filename+fi)
+def download_streetview_image(lat_lon, filename="image", savepath=photo_folder, size="600x300", heading=151.78, pitch=-0.76, fi=".jpg", fov=90, get_metadata=False, verbose=True, outdoor=True):
+    # Any size up to 640x640 is permitted by the API
+    # fov is the zoom level, effectively. Between 0 and 120.
+    base = "https://maps.googleapis.com/maps/api/streetview"
+    if get_metadata:
+        base = base + "/metadata?parameters"
+    if type(lat_lon) is tuple:
+        lat_lon_str = str(lat_lon[0]) + "," + str(lat_lon[1])
+    elif type(lat_lon) is str:
+        # We expect a latitude/longitude tuple, but if you providing a string address works too.
+        lat_lon_str = lat_lon
+    if outdoor:
+        outdoor_string = "&source=outdoor"
+    else:
+        outdoor_string = ""
+    url = base + "?size=" + size + "&location=" + lat_lon_str + "&heading=" + str(heading) + "&pitch=" + str(pitch) + "&fov=" + str(fov) + outdoor_string + "&key=" + API_KEY_STREETVIEW
+    if verbose:
+        print url
+    if get_metadata:
+        # Description of metadata API: https://developers.google.com/maps/documentation/streetview/intro#size
+        response = urllib.urlopen(url)
+        data = json.loads(response.read())
+        return data
+    else:
+        urllib.urlretrieve(url, savepath+filename+fi)
+
+def download_streetview_circle(lat_lon,filename, **kwargs):
+    for heading in range(0,359,15):
+        download_streetview_image(lat_lon, heading=heading, filename=filename+str(heading), **kwargs)
+
+
+download_streetview_circle(central_park_s, filename="cp_pano_")
+
+def make_video(base_string, rate=20):
+    from subprocess import call
+    call("ffmpeg -r 25 -f image2 -s 600x300 -i photos/cp_pano_%d.jpg -vcodec libx264 -crf 25 -pix_fmt yuv420p cp_pano.mp4")
+    call(["ffmpeg", "-r", str(rate), "-f", "image2", "-s", "600x300", "-i", base_string+"%d.jpg", "-vcodec libx264 -crf 25 -pix_fmt yuv420p", base_string+"_pano.mp4"])
+    # ffmpeg -r 25 -f image2 -s 600x300 -i photos/central_park%d.jpg -vcodec libx264 -crf 25 -pix_fmt yuv420p central_park_bike_ride.mp4
     
 
 # Given two GPS points (lat/lon), interpolate a sequence of GPS points in a straight line
@@ -44,33 +75,33 @@ def interpolate_points(a_gps,b_gps,n_points=10,hop_size=None):
 
 # Given two GPS points, find the heading (as an angle from true north) that looks from point A to point B
 def get_angle_between_points(a,b):
-	if a==b:
-		print "Points a and b are the same! Returning angle 0."
-		return 0
-	x = b[0]-a[0]
-	y = b[1]-a[1]
-	r = np.sqrt(np.power(x,2) + np.power(y,2))
-	theta = np.arcsin(y/r) * 180 / np.pi
-	# Q2:
-	if (y>0) and (x<0):
-		# theta is negative already, so add 180
-		theta += 180
-	# Q3:
-	elif (y<0) and (x<0):
-		# theta is negative
-		theta -= 180
-	# Q4:
-	elif (y<0) and (x>0):
-		theta += 360
-	angle_from_north = 90 - theta
-	return angle_from_north
+    if a==b:
+        print "Points a and b are the same! Returning angle 0."
+        return 0
+    x = b[0]-a[0]
+    y = b[1]-a[1]
+    r = np.sqrt(np.power(x,2) + np.power(y,2))
+    theta = np.arcsin(y/r) * 180 / np.pi
+    # Q2:
+    if (y>0) and (x<0):
+        # theta is negative already, so add 180
+        theta += 180
+    # Q3:
+    elif (y<0) and (x<0):
+        # theta is negative
+        theta -= 180
+    # Q4:
+    elif (y<0) and (x>0):
+        theta += 360
+    angle_from_north = 90 - theta
+    return angle_from_north
 
 def crude_estimate_bearing(a_latlon,b_latlon):
     import geopy
     import geopy.distance
     start = geopy.Point(a_latlon[1],a_latlon[0])
     goal = geopy.Point(b_latlon[1],b_latlon[0])
-    d = geopy.distance.VincentyDistance(kilometers = 1)
+    d = geopy.distance.VincentyDistance(kilometers = 0.01)
     dest_opts = []
     for bearing in range(360):
         dist = geopy.distance.great_circle(goal, d.destination(point=start, bearing=bearing)).miles
@@ -79,6 +110,40 @@ def crude_estimate_bearing(a_latlon,b_latlon):
     bearing_ccw_from_north = bearing_ccw_from_east - 90
     bearing_cw_from_north = np.mod(-bearing_ccw_from_north,360)
     return bearing_cw_from_north
+
+# Gist copied from https://gist.github.com/jeromer/2005586 which is in the public domain:
+def calculate_initial_compass_bearing(pointA, pointB):
+	import math
+	"""
+	Calculates the bearing between two points.
+	The formulae used is the following:
+		θ = atan2(sin(Δlong).cos(lat2),
+				  cos(lat1).sin(lat2) − sin(lat1).cos(lat2).cos(Δlong))
+	:Parameters:
+	  - `pointA: The tuple representing the latitude/longitude for the
+		first point. Latitude and longitude must be in decimal degrees
+	  - `pointB: The tuple representing the latitude/longitude for the
+		second point. Latitude and longitude must be in decimal degrees
+	:Returns:
+	  The bearing in degrees
+	:Returns Type:
+	  float
+	"""
+	if (type(pointA) != tuple) or (type(pointB) != tuple):
+		raise TypeError("Only tuples are supported as arguments")
+	lat1 = math.radians(pointA[0])
+	lat2 = math.radians(pointB[0])
+	diffLong = math.radians(pointB[1] - pointA[1])
+	x = math.sin(diffLong) * math.cos(lat2)
+	y = math.cos(lat1) * math.sin(lat2) - (math.sin(lat1)
+			* math.cos(lat2) * math.cos(diffLong))
+	initial_bearing = math.atan2(x, y)
+	# Now we have the initial bearing but math.atan2 return values
+	# from -180° to + 180° which is not what we want for a compass bearing
+	# The solution is to normalize the initial bearing as shown below
+	initial_bearing = math.degrees(initial_bearing)
+	compass_bearing = (initial_bearing + 360) % 360
+	return compass_bearing
 
 
 from math import radians, cos, sin, asin, sqrt
@@ -101,9 +166,15 @@ def haversine(a_gps, b_gps):
     return m
 
 # Example 1: Look around in a circle!
+dumps = []
 hachiko = (35.6595104,139.7010075)
-for heading in range(0,359):
-	download_streetview_image(hachiko, filename="hachiko_" + str(heading), heading=heading)
+for heading in range(0,359,5):
+    p = heading/4.0
+    metadata = download_streetview_image(hachiko, filename="hachiko_" + str(heading), heading=heading, pitch=p, get_metadata=True)
+    if metadata['status']=='OK':
+        download_streetview_image(hachiko, filename="hachiko_" + str(heading), heading=heading, pitch=p)
+    else:
+        dumps += [metadata]
 
 # Example 2: Walk along a street!
 gr = googlemaps.Client(key=API_KEY_ROADS)
@@ -119,25 +190,92 @@ for i,gps_point in enumerate(atob[:20]):
 atob_wdata = gr.snap_to_roads([a_gps, b_gps], interpolate=True)
 atob = [(g["location"]["latitude"], g["location"]["longitude"]) for g in atob_wdata]
 for i,gps_point in enumerate(atob[:-1]):
-	heading = get_angle_between_points(gps_point, atob[i+1])
-	download_streetview_image(gps_point, filename="stcats_snap_" + str(i), heading=90-heading)
+    heading = get_angle_between_points(gps_point, atob[i+1])
+    download_streetview_image(gps_point, filename="stcats_snap_" + str(i), heading=90-heading)
 
 
 import time
 p_home = (36.070847,140.115591)
 p_ushiku = (35.982697,140.220276)
+joshua_tree_a = (33.657139, -115.802200)
+joshua_tree_b = (33.829343, -115.759485)
+provincetown_west_end = (42.037576, -70.196374)
+provincetown_east_end = (42.063885, -70.152947)
+logan_airport = (42.365764, -71.010655)
+central_park_s = (40.765810, -73.976188)
+central_park_ne = (40.797063, -73.949645)
+arizona_a = (33.610460, -113.628236)
+arizona_b = (33.266353, -111.300382)
+arizona_c = (32.630093, -109.015760)
+ottawa = (45.423392, -75.698306)
+montreal = (45.508964, -73.554354)
+danforth_music_hall = (43.676533, -79.357132)
+scenes_des_arbres = (45.515202, -73.535611)
 # Getting directions to obtain a route
 import polyline
 gd = googlemaps.Client(key=API_KEY_DIRECTIONS)
 directions_result = gd.directions(origin=p_home,destination=p_ushiku,mode="walking")
+directions_result = gd.directions(origin=central_park_s,destination=central_park_ne,mode="bicycling")
+directions_result = gd.directions(origin=provincetown_east_end,destination=provincetown_west_end,mode="driving")
+directions_result = gd.directions(origin=arizona_b,destination=arizona_c,mode="driving")
+directions_result = gd.directions(origin=ottawa,destination=montreal,mode="driving")
+
 path_points = polyline.decode(directions_result[0]['overview_polyline']['points'])
 look_points = [interpolate_points(pt[0],pt[1],hop_size=10) for pt in zip(path_points[:-1],path_points[1:])]
 look_points = [item for sequence in look_points for item in sequence]
-for i,gps_point in enumerate(look_points):
-    heading = crude_estimate_bearing(gps_point, look_points[i+3])
-    download_streetview_image(gps_point, filename="road_to_ushiku_" + str(i), heading=heading)
-    if np.mod(i,50)==0:
-        time.sleep(5)
+pt_diffs = [np.array(a)-np.array(b) for (a,b) in zip(look_points[:-1],look_points[1:])]
+keepers = np.abs(np.array(pt_diffs))>0
+look_points = [look_points[i] for i in range(len(keepers)) if np.any(keepers[i])]
+look_points += look_points[-1:]*3
+for i in range(len(look_points)-3):
+for i in range(10,200):
+    # for i in range(1000):
+    gps_point = look_points[i]
+    heading = calculate_initial_compass_bearing(gps_point, look_points[i+1])
+    probe = download_streetview_image(gps_point, filename="" + str(i), heading=heading, size="640x640", get_metadata=True)
+    # if probe['status']=="OK" and probe['copyright']==u'\xa9 Google, Inc.':
+    if probe['status']=="OK" and 'Google' in probe['copyright']:
+        download_streetview_image(gps_point, filename="ottawa_montreal" + str(i), heading=heading, size="640x640", get_metadata=False)
+
+# if np.mod(i,150)==0:
+    # time.sleep(5)
+
+filestem = "arizona"
+import subprocess
+import os.system
+def trim_repeats(filestem):
+files = glob.glob("./photos/"+filestem+"*.jpg")
+n = len(files)
+prev_frame = files[0]
+for curr_frame in files[1:]:
+	result = os.system("diff " + curr_frame + " " + prev_frame)
+	if result>0:
+		os.system("mv " + curr_frame + " " + curr_frame+".txt")
+	else:
+		prev_frame - curr_frame
+
+
+files = glob.glob("./photos/"+filestem+"*.jpg")
+# for fil in files:
+# 	new_fil = re.sub(".txt","",fil)
+# 	os.system("mv " + fil + " " +new_fil)
+n = len(files)
+prev_frame = files[0]
+for curr_frame in files[1:]:
+	result = os.system("diff " + curr_frame + " " + prev_frame)
+	if result>0: # new frame is different, reset basis
+		prev_frame = curr_frame
+	else:  # new frame is identical, move it to a text file
+		os.system("mv " + curr_frame + " " + curr_frame+".txt")
+
+ffmpeg -r 20 -f image2 -s 600x600 -i photos/ottawa_montreal%d.jpg -vcodec libx264 -crf 25 -pix_fmt yuv420p ottawa_montreal.mp4
+
+ffmpeg -r 20 -f image2 -s 600x600 -i photos/capecod%d.jpg -vcodec libx264 -crf 25 -pix_fmt yuv420p capecod.mp4
+
+ffmpeg -r 20 -f image2 -s 600x300 -i photos/joshua_tree%d.jpg -vcodec libx264 -crf 25 -pix_fmt yuv420p joshua_tree.mp4
+
+
+ffmpeg -r 25 -f image2 -s 600x300 -i photos/central_park%d.jpg -vcodec libx264 -crf 25 -pix_fmt yuv420p central_park_bike_ride.mp4
 
 
 # 
@@ -344,9 +482,10 @@ for pic_number in range(50):
 ffmpeg -r 20 -f image2 -s 600x300 -i zoom_%03d.jpg -vcodec libx264 -crf 25  -pix_fmt yuv420p test.mp4
 
 
-ffmpeg -r 20 -f image2 -s 600x300 -i santa_monica_%1d.jpg -vcodec libx264 -crf 25  -pix_fmt yuv420p sm_video.mp4
+ffmpeg -r 20 -f image2 -s 600x300 -i la/santa_monica_%1d.jpg -vcodec libx264 -crf 25  -pix_fmt yuv420p sm_video.mp4
 
 
+ffmpeg -r 20 -f image2 -s 600x300 -i photos/road_to_ushiku_%d.jpg -vcodec libx264 -crf 25 -pix_fmt yuv420p ushiku.mp4
 
 
 
