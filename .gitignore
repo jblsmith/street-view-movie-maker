@@ -1,2 +1,4 @@
 photos/*
 API_KEY*
+*.pyc
+*.mp4
