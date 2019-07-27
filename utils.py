@@ -2,7 +2,6 @@
 # https://developers.google.com/maps/documentation/directions/
 # https://developers.google.com/maps/documentation/roads/snap
 
-from API_KEYS import *
 import googlemaps
 import urllib, os
 import numpy as np
