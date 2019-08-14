@@ -16,7 +16,7 @@ PHOTO_FOLDER = "./photos/"
 # https://andrewpwheeler.wordpress.com/2015/12/28/using-python-to-grab-google-street-view-imagery/
 # Usage example:
 # >>> download_streetview_image((46.414382,10.012988))
-def download_streetview_image(apikey_streetview, lat_lon, filename="image", savepath=PHOTO_FOLDER, size="600x300", heading=151.78, pitch=-0, fi=".jpg", fov=90, get_metadata=False, verbose=True, outdoor=True, radius=15):
+def download_streetview_image(apikey_streetview, lat_lon, filename="image", savepath=PHOTO_FOLDER, picsize="600x300", heading=151.78, pitch=-0, fi=".jpg", fov=90, get_metadata=False, verbose=True, outdoor=True, radius=5):
 	assert type(radius) is int
 	# Any size up to 640x640 is permitted by the API
 	# fov is the zoom level, effectively. Between 0 and 120.
@@ -32,7 +32,7 @@ def download_streetview_image(apikey_streetview, lat_lon, filename="image", save
 		outdoor_string = "&source=outdoor"
 	else:
 		outdoor_string = ""
-	url = base + "?size=" + size + "&location=" + lat_lon_str + "&heading=" + str(heading) + "&pitch=" + str(pitch) + "&fov=" + str(fov) + outdoor_string + "&radius" + str(radius) + "&key=" + apikey_streetview
+	url = base + "?size=" + picsize + "&location=" + lat_lon_str + "&heading=" + str(heading) + "&pitch=" + str(pitch) + "&fov=" + str(fov) + outdoor_string + "&radius" + str(radius) + "&key=" + apikey_streetview
 	if verbose:
 		print url
 	if get_metadata:
@@ -103,7 +103,7 @@ def clean_look_points(look_points):
 # The orientation is assumed to be towards the next point.
 # Setting orientation to value N orients the camera to the Nth next point.
 # If there isn't a point N points in the future, we just use the previous heading.
-def download_images_for_path(apikey_streetview, filestem, look_points, orientation=1):
+def download_images_for_path(apikey_streetview, filestem, look_points, orientation=1, picsize="640x320"):
 	assert type(orientation) is int
 	assert orientation >= 1
 	for i in range(len(look_points)):
@@ -112,10 +112,38 @@ def download_images_for_path(apikey_streetview, filestem, look_points, orientati
 			heading = prev_heading
 		else:
 			heading = calculate_initial_compass_bearing(gps_point, look_points[i+orientation])
-		probe = download_streetview_image(apikey_streetview, gps_point, filename="", heading=heading, size="640x640", get_metadata=True)
+		probe = download_streetview_image(apikey_streetview, gps_point, filename="", heading=heading, picsize=picsize, get_metadata=True)
 		if probe['status']=="OK" and 'Google' in probe['copyright']:
-			dest_file = download_streetview_image(apikey_streetview, gps_point, filename=filestem + str(i), heading=heading, size="640x640", get_metadata=False)
+			dest_file = download_streetview_image(apikey_streetview, gps_point, filename=filestem + str(i), heading=heading, picsize=picsize, get_metadata=False)
 		prev_heading = heading
+
+# TODO: check if vantage of next look point is the same as previous one. (Check if image is the same, but do that using the original heading, not the possibly adjusted one.)
+
+# Download set of zoomed-in views to be composited into a larger image
+def download_images_for_point(apikey_streetview, lat_lon, filestem, heading, fov = 30, fov_step = 30, pitch = 15, grid_dim = [4,2]):
+	horiz_points = (np.arange(grid_dim[0]) - (grid_dim[0]-1)/2.0) * fov_step
+	vert_points = (np.arange(grid_dim[1])[::-1] - (grid_dim[1]-1)/2.0) * fov_step + pitch
+	# horiz_points = np.linspace(-1, 1, grid_dim[0]) * (fov / 90.0)
+	# vert_points = np.linspace(max_pitch, min_pitch, grid_dim[1]) * (fov / 90.0)
+	# fov_angle_frac = 1.0 * fov / max(grid_dim)
+	# fudge_factor = 5
+	# assert fov_angle_frac >= 15
+	panel_inds = np.reshape(np.arange(np.prod(grid_dim)), grid_dim, 1).transpose()
+	for ix,x in enumerate(horiz_points):
+		for iy,y in enumerate(vert_points):
+			panel_ind = panel_inds[iy,ix]
+			print panel_ind
+			tmp_heading = heading + x
+			tmp_pitch = y
+			print tmp_heading, tmp_pitch
+			download_streetview_image(apikey_streetview, lat_lon, filename="{0}_{1}".format(filestem,panel_ind), savepath="./test/", picsize="640x640", heading=tmp_heading, pitch=tmp_pitch, fi=".jpg", fov=fov, get_metadata=False, verbose=True, outdoor=True, radius=5)
+
+def assemble_grid_of_images(filestem, savepath, outfilestem, grid_dim, crop_dim="640x640+0+0"):
+	panel_inds = np.reshape(np.arange(np.prod(grid_dim)), grid_dim, 1).transpose()
+	grid_filenames = [["{0}/{1}_{2}.jpg -crop {3}".format(savepath,filestem,pind,crop_dim) for pind in pindrow] for pindrow in panel_inds]
+	command_string = "convert " + "   ".join([" \( " + " ".join(row+["+append"]) + " \) " for row in grid_filenames]) + " -append {0}.jpg".format(outfilestem)
+	# print command_string
+	subprocess.call(command_string, shell=True)
 
 # Line up files in order to make a video using ffmpeg.
 # ffmpeg requires all images files numbered in sequence, with no gaps.
@@ -141,8 +169,8 @@ def line_up_files(filestem):
 		print "mv {0} {1}".format(old_filename, new_filename)
 		os.system("mv {0} {1}".format(old_filename, new_filename))
 
-def make_video(base_string, rate=20, video_string=None):
+def make_video(base_string, rate=20, video_string=None, picsize="640x640"):
 	if video_string is None:
 		video_string = base_string
-	subprocess.call("ffmpeg -r {0} -f image2 -s 600x600 -i ./photos/{1}%d.jpg -vcodec libx264 -crf 25 -pix_fmt yuv420p {2}.mp4".format(rate, base_string, video_string), shell=True)
+	subprocess.call("ffmpeg -r {0} -f image2 -s {3} -i ./photos/{1}%d.jpg -vcodec libx264 -crf 25 -pix_fmt yuv420p {2}.mp4".format(rate, base_string, video_string, picsize), shell=True)
 

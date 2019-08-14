@@ -2,7 +2,7 @@
 
 It makes movies out of Google Street View images!
 
-You provide point A and point B. It uses the Google Roads API to get directions from A to B, then repeatedly looks for Street View images along that path, and then converts them into a movie.
+You provide point A and point B. It uses the Google Roads API to get directions from A to B, then repeatedly looks for Street View images along that path, and converts them into a movie.
 
 E.g., [here is a video](https://www.youtube.com/watch?v=puzhsLtn8AQ) taken along the Copacabana beach in Rio, with a little snippet of Senor Coconut's "Neon Lights (Cha Cha Cha)" added for fun:
 

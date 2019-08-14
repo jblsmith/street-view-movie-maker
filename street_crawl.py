@@ -15,7 +15,7 @@ Note: usage requires your own API keys.
 
 '''
 
-def main(lat_lon_A, lat_lon_B, filestem):
+def main(lat_lon_A, lat_lon_B, filestem, picsize):
 	print "Tracing path from ({0}) to ({1})".format(lat_lon_A, lat_lon_B)
 	# Request driving directions from A to B
 	gd = googlemaps.Client(key=API_KEY_DIRECTIONS)
@@ -31,14 +31,15 @@ def main(lat_lon_A, lat_lon_B, filestem):
 	if continue_opt not in ['Yes','yes']:
 		return
 	# Download sequence of images (up to a limit? What's the limit in a day?)
-	download_images_for_path(API_KEY_STREETVIEW, filestem, look_points)
+	download_images_for_path(API_KEY_STREETVIEW, filestem, look_points, picsize=picsize)
 	# Assign images new filenames (and remove bad images)
 	line_up_files(filestem)
 	# Convert sequence of images to video
-	make_video(filestem, rate=20, video_string=filestem)
+	make_video(filestem, rate=20, video_string=filestem, picsize=picsize)
 	# TODO: Delete downloaded images
 
 if __name__ == "__main__":
 	lat_A, lon_A, lat_B, lon_B = [float(x) for x in sys.argv[1:5]]
 	filestem = sys.argv[5]
-	main((lat_A, lon_A), (lat_B, lon_B), filestem)
+	picsize = sys.argv[6]
+	main((lat_A, lon_A), (lat_B, lon_B), filestem, picsize)
