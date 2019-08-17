@@ -117,7 +117,33 @@ def download_images_for_path(apikey_streetview, filestem, look_points, orientati
 			dest_file = download_streetview_image(apikey_streetview, gps_point, filename=filestem + str(i), heading=heading, picsize=picsize, get_metadata=False)
 		prev_heading = heading
 
-# TODO: check if vantage of next look point is the same as previous one. (Check if image is the same, but do that using the original heading, not the possibly adjusted one.)
+def execute_turn(apikey_streetview, filestem, gps_point, h1, h2, picsize="640x320", stepsize=15):
+	if h2 < h1:
+		h2 += 360
+	clockwise = (h2 - h1 < 180)
+	if not clockwise:
+		h1 += 360
+	n_points = np.ceil(np.abs( (h1 - h2)*1.0 /stepsize))
+	headings = np.linspace(h1,h2,n_points)
+	probe = download_streetview_image(apikey_streetview, gps_point, filename="", heading=headings[0], picsize=picsize, get_metadata=True)
+	if probe['status']=="OK" and 'Google' in probe['copyright']:
+		for h_i,h in enumerate(headings):
+			dest_file = download_streetview_image(apikey_streetview, gps_point, filename="{0}_turn_{1}".format(filestem,h_i), heading=h, picsize=picsize, get_metadata=False)
+
+# TODO: This:
+def generate_download_sequence():
+	print "TODO: generate a saveable plan for what to download and what every iamge will be called."
+	# create a pandas table with length (len look_points) ... but it'll need to be longer to you execute turns?
+	# for i in look_points:
+	# 	download probe
+	# 	save probe info into table
+	# then, outside this routine, I can save the data and determine which are unique points.
+	# I can also compute where the turns are needed, and generate a plan.
+	# the plan will be:
+	# 	every unique point, laid out
+	# 	if (heading_diff >= crit_angle) execute turn at a standstill
+	# 	if (heading_diff < crit_angle) execute turn gently along path
+	# at that point, there will be a complete program of things to download, with successful probes already made. So, I can just download everything with assigned names and headings.
 
 # Download set of zoomed-in views to be composited into a larger image
 def download_images_for_point(apikey_streetview, lat_lon, filestem, heading, fov = 30, fov_step = 30, pitch = 15, grid_dim = [4,2]):
