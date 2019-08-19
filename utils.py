@@ -117,7 +117,7 @@ def download_images_for_path(apikey_streetview, filestem, look_points, orientati
 			dest_file = download_streetview_image(apikey_streetview, gps_point, filename=filestem + str(i), heading=heading, picsize=picsize, get_metadata=False)
 		prev_heading = heading
 
-def execute_turn(apikey_streetview, filestem, gps_point, h1, h2, picsize="640x320", stepsize=15):
+def get_turn_headings(h1, h2, stepsize=15):
 	if h2 < h1:
 		h2 += 360
 	clockwise = (h2 - h1 < 180)
@@ -125,25 +125,71 @@ def execute_turn(apikey_streetview, filestem, gps_point, h1, h2, picsize="640x32
 		h1 += 360
 	n_points = np.ceil(np.abs( (h1 - h2)*1.0 /stepsize))
 	headings = np.linspace(h1,h2,n_points)
-	probe = download_streetview_image(apikey_streetview, gps_point, filename="", heading=headings[0], picsize=picsize, get_metadata=True)
-	if probe['status']=="OK" and 'Google' in probe['copyright']:
-		for h_i,h in enumerate(headings):
-			dest_file = download_streetview_image(apikey_streetview, gps_point, filename="{0}_turn_{1}".format(filestem,h_i), heading=h, picsize=picsize, get_metadata=False)
+	return np.mod(headings,360)
 
-# TODO: This:
-def generate_download_sequence():
-	print "TODO: generate a saveable plan for what to download and what every iamge will be called."
-	# create a pandas table with length (len look_points) ... but it'll need to be longer to you execute turns?
-	# for i in look_points:
-	# 	download probe
-	# 	save probe info into table
-	# then, outside this routine, I can save the data and determine which are unique points.
-	# I can also compute where the turns are needed, and generate a plan.
-	# the plan will be:
-	# 	every unique point, laid out
-	# 	if (heading_diff >= crit_angle) execute turn at a standstill
-	# 	if (heading_diff < crit_angle) execute turn gently along path
-	# at that point, there will be a complete program of things to download, with successful probes already made. So, I can just download everything with assigned names and headings.
+# def execute_turn(apikey_streetview, filestem, gps_point, h1, h2, picsize="640x320", stepsize=15):
+# 	if h2 < h1:
+# 		h2 += 360
+# 	clockwise = (h2 - h1 < 180)
+# 	if not clockwise:
+# 		h1 += 360
+# 	n_points = np.ceil(np.abs( (h1 - h2)*1.0 /stepsize))
+# 	headings = np.linspace(h1,h2,n_points)
+# 	probe = download_streetview_image(apikey_streetview, gps_point, filename="", heading=headings[0], picsize=picsize, get_metadata=True)
+# 	if probe['status']=="OK" and 'Google' in probe['copyright']:
+# 		for h_i,h in enumerate(headings):
+# 			dest_file = download_streetview_image(apikey_streetview, gps_point, filename="{0}_turn_{1}".format(filestem,h_i), heading=h, picsize=picsize, get_metadata=False)
+#
+def generate_download_sequence(gps_points, savename):
+	print "TODO: generate a saveable plan for what to download and what every image will be called."
+	import pandas as pd
+	# Create dataframe with GPS points
+	pt_list = pd.DataFrame(index=range(len(gps_points)), data=gps_points, columns=["lat","lon"])
+	# Compute basic headings
+	headings = [calculate_initial_compass_bearing(pt[0], pt[1]) for pt in zip(gps_points[:-1],gps_points[1:])]
+	pt_list['heading'] = headings + [headings[-1]]
+	# Set up probes and collect all in raw form
+	pt_list['probe'] = [{} for i in pt_list.index]
+	for i in pt_list.index:
+		pt_list['probe'][i] = download_streetview_image(apikey_streetview, (pt_list["lat"][i],pt_list["lon"][i]), filename="", heading=pt_list["heading"][i], get_metadata=True)
+	# Assign probe items to their own columns:
+	probe_items = ['copyright', 'date', 'location', 'pano_id', 'status']
+	for p_item in probe_items:
+		pt_list[p_item] = [x[p_item] for x in pt_list['probe']]
+	pt_list.to_pickle(savename)
+	return pt_list
+
+def process_pointlist(pt_list=None, pt_list_filename=None):
+	if pt_list is None and pt_list_filename is not None:
+		pt_list = pd.read_pickle(pt_list_filename)
+	# Remove duplicate / invalid points:
+	unique_panos = np.unique(pt_list.pano_id)
+	panoid_to_ind = {panoid:pt_list.pano_id.eq(panoid).idxmax() for panoid in unique_panos}
+	keepers = [i for i in sorted(panoid_to_ind.values()) if pt_list.status[i]=='OK' and 'Google' in pt_list.copyright[i]]
+	new_list = pt_list.loc[keepers]
+	new_list.index = np.arange(new_list.shape[0])
+	crit_diff = 5
+	turn_indices = new_list.loc[np.abs(np.diff(new_list.heading))>crit_diff].index
+	new_rows = []
+	for ti in turn_indices:
+		h1 = new_list.headings[ti]
+		h2 = new_list.headings[ti+1]
+		headings = get_turn_headings(h1, h2, stepsize=1)[1:-1]
+		tmp_df = pd.DataFrame(np.tile(new_list.loc[ti],(len(headings),1)))
+		tmp_df.columns = new_list.columns
+		tmp_df.heading = headings
+		tmp_df.index = np.linspace(ti+0.01,ti+0.99,len(headings))
+		new_rows += [tmp_df]
+	final_list = pd.concat([new_list]+new_rows)
+	final_list = final_list.sort_index()
+	final_list.index = np.arange(final_list.shape[0])
+	return final_list
+
+def download_pics_from_list(item_list, apikey_streetview, filestem, picsize):
+	for i in item_list.index:
+		row = item_list.loc[i]
+		lat, lon, heading = row['lat'], row['lon'], row['heading']
+		download_streetview_image(apikey_streetview, (lat,lon), filename=filestem + str(i), heading=heading, picsize=picsize, get_metadata=False)
 
 # Download set of zoomed-in views to be composited into a larger image
 def download_images_for_point(apikey_streetview, lat_lon, filestem, heading, fov = 30, fov_step = 30, pitch = 15, grid_dim = [4,2]):
