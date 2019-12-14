@@ -31,11 +31,11 @@ def main(lat_lon_A, lat_lon_B, filestem, picsize):
 	if continue_opt not in ['Yes','yes']:
 		return
 	# Download sequence of images (up to a limit? What's the limit in a day?)
-	download_images_for_path(API_KEY_STREETVIEW, filestem, look_points, picsize=picsize)
+	# download_images_for_path(API_KEY_STREETVIEW, filestem, look_points, picsize=picsize)
 	# Assign images new filenames (and remove bad images)
-	line_up_files(filestem)
+	line_up_files(filestem, new_dir="./lineup-{0}/".format(filestem))
 	# Convert sequence of images to video
-	make_video(filestem, rate=20, video_string=filestem, picsize=picsize)
+	make_video(filestem, rate=20, video_string=filestem, picsize=picsize, basepath="./lineup-{0}/".format(filestem))
 	# TODO: Delete downloaded images
 
 if __name__ == "__main__":
