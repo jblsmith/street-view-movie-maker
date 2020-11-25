@@ -16,7 +16,7 @@ Note: usage requires your own API keys.
 '''
 
 def main(lat_lon_A, lat_lon_B, filestem, picsize):
-	print "Tracing path from ({0}) to ({1})".format(lat_lon_A, lat_lon_B)
+	print ("Tracing path from ({0}) to ({1})".format(lat_lon_A, lat_lon_B))
 	# Request driving directions from A to B
 	gd = googlemaps.Client(key=API_KEY_DIRECTIONS)
 	directions_result = gd.directions(origin=lat_lon_A, destination=lat_lon_B, mode="driving")
@@ -26,8 +26,8 @@ def main(lat_lon_A, lat_lon_B, filestem, picsize):
 	look_points_rough = [item for sequence in dense_points for item in sequence]
 	# Remove unnecessary points
 	look_points = clean_look_points(look_points_rough)
-	print "For this route, there are {0} images to download.\n".format(len(look_points))
-	continue_opt = raw_input('Would you like to download them all Type yes to proceed; otherwise, program halts.\n')
+	print ("For this route, there are {0} images to download.\n".format(len(look_points)))
+	continue_opt = input('Would you like to download them all Type yes to proceed; otherwise, program halts.\n')
 	if continue_opt not in ['Yes','yes']:
 		return
 	# Download sequence of images (up to a limit? What's the limit in a day?)
