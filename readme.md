@@ -13,7 +13,7 @@ E.g., [here is a video](https://www.youtube.com/watch?v=puzhsLtn8AQ) taken along
 To run this code yourself takes some fussing around:
 
 1. Make sure [FFMPEG](https://ffmpeg.org/) is installed and callable from the command line. I brew-installed it.
-2. pip-install this project's python [requirements](requirements.txt). The only packages you may not have are [googlemaps](https://pypi.org/project/googlemaps/) and [polyline](https://pypi.org/project/polyline/). Note: this project is written for Python 2.
+2. pip-install this project's python [requirements](requirements.txt). The only packages you may not have are [googlemaps](https://pypi.org/project/googlemaps/) and [polyline](https://pypi.org/project/polyline/). Note: this project is written for Python 2 and ported to Python 3 recently.
 3. Lastly, and trickiest of all: the code requires API keys for Google Map's [Street View](https://developers.google.com/maps/documentation/streetview/get-api-key) and [Directions](https://developers.google.com/maps/documentation/directions/get-api-key) APIs. Note: setting up the Street View API now requires a billing account! it tends to be free for small amounts of traffic, but you have to set it up anyway.
 
 ## Project history

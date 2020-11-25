@@ -4,6 +4,7 @@ from __future__ import print_function
 # https://developers.google.com/maps/documentation/roads/snap
 
 import googlemaps
+from urllib.request import urlopen, urlretrieve
 import urllib, os
 import numpy as np
 import json
@@ -39,9 +40,9 @@ def download_streetview_image(apikey_streetview, lat_lon, filename="image", save
 		print(url)
 	if get_metadata:
 		# Description of metadata API: https://developers.google.com/maps/documentation/streetview/intro#size
-		response = urllib.urlopen(url)
-		data = json.loads(response.read())
-		return data
+		with urllib.urlopen(url) as response:
+			data = json.loads(response.read().decode("utf-8"))
+			return data
 	else:
 		urllib.urlretrieve(url, savepath+filename+fi)
 		return savepath+filename+fi
